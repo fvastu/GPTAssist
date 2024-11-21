@@ -1,26 +1,5 @@
-import { Notification } from './notification';
 import { Command, generateRandomId, loadFromStorage, writeToStorage } from './storage';
 import { injectStyles } from './styles';
-
-enum CanEnterThisCommandResult {
-    YES = 'YES',
-    DUPLICATED_COMMAND = 'DUPLICATED_COMMAND',
-    DUPLICATED_NAME = 'DUPLICATED_NAME',
-}
-
-const errorMessages = {
-    [CanEnterThisCommandResult.DUPLICATED_COMMAND]: 'Command already exists. Please change the command.',
-    [CanEnterThisCommandResult.DUPLICATED_NAME]: 'Name already exists. Please change the name.',
-};
-
-// Create form fields
-const fields = [
-    { id: 'name', label: 'Name', type: 'text', placeholder: 'Enter command name' },
-    { id: 'description', label: 'Description', type: 'text', placeholder: 'Enter command description' },
-    { id: 'command', label: 'Command', type: 'text', placeholder: 'Enter command' },
-];
-
-const buttonSubmit = 'Save command';
 
 class EnhancedDropdown {
     private static readonly DROPDOWN_HEIGHT = 250;
@@ -37,6 +16,9 @@ class EnhancedDropdown {
 
     constructor() {
         this.formElement = document.querySelector('form') as HTMLFormElement;
+        if (!this.formElement) {
+            throw new Error('No form element found on the page');
+        }
         EnhancedDropdown.OPTIONS = loadFromStorage();
         this.createSaveButton();
         this.setupEventListeners();
@@ -48,16 +30,21 @@ class EnhancedDropdown {
         buttonContainer.className = 'button-container';
 
         this.saveButton = document.createElement('button');
-        this.saveButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> ${buttonSubmit}`;
+        this.saveButton.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save Command';
         this.saveButton.className = 'save-button';
-        this.saveButton.setAttribute('aria-label', buttonSubmit);
-        this.saveButton.setAttribute('title', buttonSubmit);
+        this.saveButton.setAttribute('aria-label', 'Save command');
+        this.saveButton.setAttribute('title', 'Save command');
 
         buttonContainer.appendChild(this.saveButton);
-        this.formElement.firstChild?.insertBefore(buttonContainer, this.formElement.firstChild.firstChild);
+        this.formElement.firstChild?.appendChild(buttonContainer);
     }
 
-    private createModal(initialCommand: string = ''): void {
+    private createModal(): void {
+        // Create modal backdrop
+        const backdrop = document.createElement('div');
+        backdrop.className = 'modal-backdrop';
+
         // Create modal container
         this.modalElement = document.createElement('div');
         this.modalElement.className = 'modal';
@@ -76,6 +63,13 @@ class EnhancedDropdown {
         const form = document.createElement('form');
         form.className = 'modal-form';
 
+        // Create form fields
+        const fields = [
+            { id: 'name', label: 'Name', type: 'text', placeholder: 'Enter command name' },
+            { id: 'description', label: 'Description', type: 'text', placeholder: 'Enter command description' },
+            { id: 'command', label: 'Command', type: 'text', placeholder: 'Enter command' },
+        ];
+
         fields.forEach((field) => {
             const formGroup = document.createElement('div');
             formGroup.className = 'form-group';
@@ -88,7 +82,6 @@ class EnhancedDropdown {
             input.type = field.type;
             input.id = field.id;
             input.placeholder = field.placeholder;
-            input.value = initialCommand;
 
             const error = document.createElement('span');
             error.className = 'error-message';
@@ -104,7 +97,7 @@ class EnhancedDropdown {
         const submitButton = document.createElement('button');
         submitButton.type = 'submit';
         submitButton.className = 'modal-submit';
-        submitButton.textContent = buttonSubmit;
+        submitButton.textContent = 'Save Command';
 
         form.appendChild(submitButton);
         form.onsubmit = (e) => this.handleModalSubmit(e);
@@ -113,18 +106,23 @@ class EnhancedDropdown {
         modalContent.appendChild(form);
         this.modalElement.appendChild(modalContent);
 
+        document.body.appendChild(backdrop);
         document.body.appendChild(this.modalElement);
 
         // Add animation class after a brief delay
         setTimeout(() => {
+            backdrop.classList.add('visible');
             this.modalElement?.classList.add('visible');
         }, 10);
     }
 
     private closeModal(): void {
+        const backdrop = document.querySelector('.modal-backdrop');
+        backdrop?.classList.remove('visible');
         this.modalElement?.classList.remove('visible');
 
         setTimeout(() => {
+            backdrop?.remove();
             this.modalElement?.remove();
             this.modalElement = null;
         }, 300);
@@ -132,19 +130,22 @@ class EnhancedDropdown {
 
     private validateForm(formData: { [key: string]: string }): { [key: string]: string } {
         const errors: { [key: string]: string } = {};
-        if (!formData.name.trim()) errors.name = 'Name is required';
-        if (!formData.command.trim()) errors.command = 'Command is required';
+
+        if (!formData.name.trim()) {
+            errors.name = 'Name is required';
+        }
+
+        if (!formData.description.trim()) {
+            errors.description = 'Description is required';
+        }
+
+        if (!formData.command.trim()) {
+            errors.command = 'Command is required';
+        } else if (!/^[a-zA-Z0-9\s-]+$/.test(formData.command)) {
+            errors.command = 'Command can only contain letters, numbers, spaces, and hyphens';
+        }
+
         return errors;
-    }
-
-    private canEnterThisCommand({ name, command }: Command): CanEnterThisCommandResult {
-        const hasCommand = EnhancedDropdown.OPTIONS.some((option) => option.command === command);
-        if (hasCommand) return CanEnterThisCommandResult.DUPLICATED_COMMAND;
-
-        const hasName = EnhancedDropdown.OPTIONS.some((option) => option.name === name);
-        if (hasName) return CanEnterThisCommandResult.DUPLICATED_NAME;
-
-        return CanEnterThisCommandResult.YES;
     }
 
     private handleModalSubmit(event: Event): void {
@@ -177,19 +178,14 @@ class EnhancedDropdown {
         const newCommand: Command = {
             id: generateRandomId(),
             name: formData.name,
-            command: formData.command,
+            command: formData.command.toLowerCase().replace(/\s+/g, '-'),
             description: formData.description,
         };
 
-        const resultInsertion = this.canEnterThisCommand(newCommand);
-        if (resultInsertion === CanEnterThisCommandResult.YES) {
-            EnhancedDropdown.OPTIONS.push(newCommand);
-            writeToStorage(EnhancedDropdown.OPTIONS);
-            Notification.showSuccessMessage('Command saved successfully!');
-            this.closeModal();
-            return;
-        }
-        Notification.showErrorMessage(errorMessages[resultInsertion]);
+        EnhancedDropdown.OPTIONS.push(newCommand);
+        writeToStorage(EnhancedDropdown.OPTIONS);
+        this.showNotification('Command saved successfully!');
+        this.closeModal();
     }
 
     private setupEventListeners(): void {
@@ -198,12 +194,40 @@ class EnhancedDropdown {
         document.addEventListener('keydown', this.handleKeydown.bind(this));
         this.saveButton.addEventListener('click', (e) => {
             e.preventDefault();
-            this.createModal('');
+            this.createModal();
         });
     }
+
+    private handleSave(event: Event): void {
+        event.preventDefault();
+        const value = this.inputElement?.value ?? this.inputElement?.innerText;
+        if (value?.trim()) {
+            const newCommand: Command = {
+                name: value.trim(),
+                command: value.trim().toLowerCase().replace(/\s+/g, '-'),
+                id: generateRandomId(),
+            };
+            EnhancedDropdown.OPTIONS.push(newCommand);
+            writeToStorage(EnhancedDropdown.OPTIONS);
+            this.showNotification('Command saved successfully!');
+        }
+    }
+
+    private showNotification(message: string): void {
+        const notification = document.createElement('div');
+        notification.textContent = message;
+        notification.className = 'notification';
+        document.body.appendChild(notification);
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
+
     private handleInput(event: Event): void {
         const inputElement = event.target as HTMLInputElement;
         const inputValue = (inputElement.value ?? inputElement.innerText).trim();
+
+        console.log({ inputValue });
 
         if (this.dropdownElement && !inputValue.startsWith(EnhancedDropdown.PATTERN_TO_MATCH)) {
             this.removeDropdown();
@@ -233,6 +257,7 @@ class EnhancedDropdown {
     }
 
     private createOrUpdateDropdown(): void {
+        console.log('Creating or updating dropdown');
         if (!this.dropdownElement) {
             this.dropdownElement = document.createElement('div');
             this.dropdownElement.id = 'enhanced-dropdown';
@@ -265,6 +290,7 @@ class EnhancedDropdown {
     }
 
     private refreshDropdown(query: string): void {
+        console.log('refreshDropdown -> query', query);
         if (!this.dropdownElement) return;
 
         this.dropdownElement.innerHTML = '';
@@ -291,7 +317,7 @@ class EnhancedDropdown {
             deleteButton.addEventListener('click', (event) => {
                 event.stopPropagation(); // Prevent the option click event from triggering
                 writeToStorage(EnhancedDropdown.OPTIONS.filter((option) => option.id !== filteredOption.id));
-                Notification.showSuccessMessage('Command deleted successfully!');
+                this.showNotification('Command deleted successfully!');
                 EnhancedDropdown.OPTIONS = loadFromStorage(); // force reload after the flush
                 this.refreshDropdown('');
             });
@@ -318,41 +344,11 @@ class EnhancedDropdown {
         if (!this.dropdownElement) return;
 
         switch (event.key) {
-            case 'Backspace':
-                const input = this.inputElement?.value || this.inputElement?.innerText || '';
-                // Remove the `$` pattern if it exists at the start of the input and trim any extra spaces
-                const query = input.startsWith(EnhancedDropdown.PATTERN_TO_MATCH)
-                    ? input.slice(EnhancedDropdown.PATTERN_TO_MATCH.length).trim()
-                    : input.trim();
-
-                // Remove the last character from the query
-                let updatedQuery = query.slice(0, -1);
-
-                // Update the input content
-                if (this.inputElement) {
-                    if (this.inputElement instanceof HTMLInputElement) {
-                        this.inputElement.value = `${EnhancedDropdown.PATTERN_TO_MATCH}${updatedQuery}`;
-                    } else {
-                        (
-                            this.inputElement as HTMLElement
-                        ).innerText = `${EnhancedDropdown.PATTERN_TO_MATCH}${updatedQuery}`;
-                    }
-                }
-
-                if (!updatedQuery) {
-                    this.removeDropdown();
-                    this.inputElement?.focus();
-                    return;
-                }
-
-                // Refresh dropdown with the updated query
-                this.refreshDropdown(updatedQuery);
-                break;
             case 'Enter':
             case ' ':
+                console.log('optionText', optionText);
                 event.preventDefault();
                 this.selectOption(optionText);
-                this.formElement.focus();
                 break;
             case 'ArrowDown':
                 event.preventDefault();
@@ -397,15 +393,6 @@ class EnhancedDropdown {
     }
 }
 
-let found = false;
-
 setTimeout(() => {
-    setInterval(() => {
-        const formElement = document.querySelector('form');
-
-        if (formElement && !found) {
-            new EnhancedDropdown();
-            found = true;
-        }
-    }, 100);
-}, 500);
+    new EnhancedDropdown();
+}, 2000);
